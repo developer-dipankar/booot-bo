@@ -12,6 +12,11 @@
 input string InpBotToken = "8238574819:AAFrTdkYxvB3aBReLF2cSmXr6Hu_jA64qDE"; // Bot Token
 input string InpChatId   = "-1003656505797";                                  // Chat ID
 
+// Track processed deals to prevent duplicates
+ulong g_processedDeals[];
+int g_processedCount = 0;
+#define MAX_PROCESSED 50
+
 //+------------------------------------------------------------------+
 //| Expert initialization                                             |
 //+------------------------------------------------------------------+
@@ -38,14 +43,43 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
 }
 
 //+------------------------------------------------------------------+
+//| Check if deal was already processed                               |
+//+------------------------------------------------------------------+
+bool IsDealProcessed(ulong dealTicket)
+{
+   for(int i = 0; i < g_processedCount; i++)
+      if(g_processedDeals[i] == dealTicket) return true;
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Mark deal as processed                                            |
+//+------------------------------------------------------------------+
+void MarkDealProcessed(ulong dealTicket)
+{
+   if(g_processedCount >= MAX_PROCESSED)
+   {
+      // Shift array, remove oldest
+      for(int i = 0; i < MAX_PROCESSED - 1; i++)
+         g_processedDeals[i] = g_processedDeals[i + 1];
+      g_processedCount = MAX_PROCESSED - 1;
+   }
+   ArrayResize(g_processedDeals, g_processedCount + 1);
+   g_processedDeals[g_processedCount++] = dealTicket;
+}
+
+//+------------------------------------------------------------------+
 //| Process deal                                                      |
 //+------------------------------------------------------------------+
 void ProcessDeal(ulong dealTicket)
 {
    if(dealTicket == 0) return;
+   if(IsDealProcessed(dealTicket)) return;  // Skip duplicates
 
    HistorySelect(TimeCurrent() - 86400, TimeCurrent());
    if(!HistoryDealSelect(dealTicket)) return;
+
+   MarkDealProcessed(dealTicket);  // Mark as processed
 
    ENUM_DEAL_ENTRY entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
    ENUM_DEAL_TYPE dealType = (ENUM_DEAL_TYPE)HistoryDealGetInteger(dealTicket, DEAL_TYPE);
@@ -80,11 +114,11 @@ void ProcessDeal(ulong dealTicket)
    {
       string msg = "";
       if(reason == DEAL_REASON_TP)
-         msg = "🎯 TP Hit to " + DoubleToString(price, digits);
+         msg = "🎯 " + symbol + ": TP Hit to " + DoubleToString(price, digits);
       else if(reason == DEAL_REASON_SL)
-         msg = "🛑 SL Hit to " + DoubleToString(price, digits);
+         msg = "🛑 " + symbol + ": SL Hit to " + DoubleToString(price, digits);
       else
-         msg = "📊 Closed at " + DoubleToString(price, digits);
+         msg = "📊 " + symbol + ": Closed at " + DoubleToString(price, digits);
 
       SendTelegram(msg);
    }
@@ -153,6 +187,3 @@ void OnTick() {}
 void OnDeinit(const int reason) { Print("TelegramTradeNotifier stopped"); }
 //+------------------------------------------------------------------+
 
-
-
-//+https://api.telegram.org
